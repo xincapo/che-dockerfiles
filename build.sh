@@ -1,35 +1,33 @@
-#!/bin/bash
+FROM kalilinux/kali-linux-docker
 
-PRIVATE_REPO=${PRIVATE_REPO:-}
+ENV JAVA_VERSION=8u65 \
+    JAVA_VERSION_PREFIX=1.8.0_65
+ENV JAVA_HOME /opt/jre$JAVA_VERSION_PREFIX
+ENV PATH $JAVA_HOME/bin:$PATH
+RUN apt-get update
+RUN apt-get -y install openssh-server sudo procps wget unzip mc ca-certificates curl software-properties-common python-software-properties
+RUN mkdir /var/run/sshd
+RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd
+RUN echo "%sudo ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+RUN useradd -u 1000 -G users,sudo -d /home/user --shell /bin/bash -m user
+RUN echo "secret\nsecret" | passwd user
+RUN add-apt-repository ppa:git-core/ppa
+RUN apt-get update
+RUN sudo apt-get install git subversion -y
+RUN apt-get -y autoremove
+    && apt-get -y clean \
+    && rm -rf /var/lib/apt/lists/* && \
+    echo "#! /bin/bash\n set -e\n sudo /usr/sbin/sshd -D &\n exec \"\$@\"" > /home/user/entrypoint.sh && chmod a+x /home/user/entrypoint.sh
 
-images=$(for i in $(find recipes -maxdepth 3 -mindepth 1 -type f -not -path '*/\.*' -name Dockerfile -print ); do a=${i#recipes/}; b=${a%/Dockerfile}; case $b in */*) c=${b/\//:};; *) c=$b:latest;; esac; from=$(grep FROM $i); echo ${from#FROM} eclipse/$c; done | tsort)
-
-external_images=$(echo "$images" | grep -v eclipse/)
-eclipse_images=$(echo "$images" | grep eclipse/)
-
-function error() {
-  echo $1 > /dev/stderr
-  exit 1
-}
-
-for image in $external_images; do
-    docker pull $image || error "Unable to pull image: $image"
-    if [ "x$PRIVATE_REPO" != "x" ]; then
-        docker tag $image $PRIVATE_REPO/$image
-        docker push $PRIVATE_REPO/$image || error "Unable to push image: $image"
-    fi
-done
-
-for image in $eclipse_images; do
-    a=${image%:latest}
-    b=${a#eclipse/}
-    d=recipes/${b/:/\/}
-    echo $b $d
-    docker build -t $image $d || error "Unable to build image: $image"
-    if [ "x$PRIVATE_REPO" != "x" ]; then
-        docker tag $image $PRIVATE_REPO/$image
-        docker push $PRIVATE_REPO/$image || error "Unable to push image: $image"
-    else
-        docker push $image
-    fi
-done
+ENV LANG en_GB.UTF-8
+ENV LANG en_US.UTF-8
+USER user
+RUN sudo locale-gen en_US.UTF-8 && \
+    svn --version && \
+    cd /home/user && ls -la && \
+    sed -i 's/# store-passwords = no/store-passwords = yes/g' /home/user/.subversion/servers && \
+    sed -i 's/# store-plaintext-passwords = no/store-plaintext-passwords = yes/g' /home/user/.subversion/servers
+EXPOSE 22 4403
+WORKDIR /projects
+ENTRYPOINT ["/home/user/entrypoint.sh"]
+CMD tail -f /dev/null
